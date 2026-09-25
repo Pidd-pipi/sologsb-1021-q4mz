@@ -1,17 +1,35 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import { useDictionaryStore } from '~/store/dictionary';
+import { countPendingComments } from '~/utils/dictionary';
 
 const store = useDictionaryStore();
 const activeTab = ref('basic');
 const entry = computed(() => store.selectedEntry);
 const synonymsText = computed(() => entry.value?.synonyms.join('、') ?? '');
+const pendingComments = computed(() => (entry.value ? countPendingComments(entry.value) : 0));
 
 const eventValue = (event: any) => typeof event === 'string' || typeof event === 'number' ? String(event) : event?.target?.value ?? event?.e?.target?.value ?? event?.value ?? '';
 
 const commitInput = (event: any, field: 'headword' | 'pronunciation' | 'partOfSpeech' | 'definition' | 'notes') => {
   if (!entry.value) return;
   store.updateField(entry.value.id, field, eventValue(event), field);
+};
+
+const submitForReview = () => {
+  if (!entry.value) return;
+  store.submitForReview(entry.value.id);
+  MessagePlugin.success('已提交待审，各字段内容已留底，新意见将绑定这一版');
+};
+
+const confirmEntry = () => {
+  if (!entry.value) return;
+  if (pendingComments.value > 0) {
+    MessagePlugin.error(`还有 ${pendingComments.value} 条意见未处理完（含待复核），全部处理后才能确认`);
+    return;
+  }
+  if (store.confirmEntry(entry.value.id)) MessagePlugin.success('全部意见已处理，词条已确认');
 };
 </script>
 
@@ -24,9 +42,15 @@ const commitInput = (event: any, field: 'headword' | 'pronunciation' | 'partOfSp
       </div>
       <div class="editor-actions">
         <t-tag :theme="entry.status === 'confirmed' ? 'success' : entry.status === 'disputed' ? 'danger' : entry.status === 'review' ? 'warning' : 'default'" variant="light">{{ entry.status }}</t-tag>
-        <t-button size="small" variant="outline" @click="store.setStatus(entry.id, 'review')">提交待审</t-button>
-        <t-button size="small" theme="success" @click="store.setStatus(entry.id, 'confirmed')">确认词条</t-button>
+        <t-button size="small" variant="outline" :disabled="entry.status === 'review'" @click="submitForReview">提交待审</t-button>
+        <t-button size="small" theme="success" :disabled="pendingComments > 0" @click="confirmEntry">确认词条</t-button>
       </div>
+    </div>
+    <div v-if="pendingComments > 0" class="confirm-guard">
+      还有 <strong>{{ pendingComments }}</strong> 条意见未处理完（待处理或待复核），主审全部判定“处理完了”后才能确认词条。
+    </div>
+    <div v-else-if="entry.submittedAt" class="confirm-guard ok">
+      全部意见已处理；当前审校依据为第 {{ entry.submittedRevision }} 版提交。
     </div>
 
     <t-tabs v-model="activeTab" class="entry-tabs">

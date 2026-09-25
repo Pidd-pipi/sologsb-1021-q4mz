@@ -101,7 +101,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keyboard));
         <div><strong>{{ store.entries.length }}</strong><span>词条</span></div>
         <div><strong>{{ store.entries.filter((entry) => entry.status === 'review').length }}</strong><span>待审</span></div>
         <div><strong>{{ store.entries.filter((entry) => entry.status === 'disputed').length }}</strong><span>争议</span></div>
-        <div><strong>{{ store.openComments }}</strong><span>待回复意见</span></div>
+        <div><strong>{{ store.openComments }}</strong><span>待处理意见</span></div>
         <div><strong>{{ store.duplicates.length }}</strong><span>疑似重复</span></div>
       </div>
     </section>

@@ -1,4 +1,86 @@
-import type { DictionaryEntry, DuplicatePair } from '~/types/dictionary';
+import type { DictionaryEntry, DuplicatePair, ReviewComment } from '~/types/dictionary';
+
+/** 可被逐字段审校的字段 */
+export const REVIEW_FIELDS = [
+  'headword', 'pronunciation', 'partOfSpeech', 'definition',
+  'dialectVariants', 'examples', 'sources', 'synonyms', 'notes'
+] as const;
+
+export type ReviewField = (typeof REVIEW_FIELDS)[number];
+
+export const FIELD_LABELS: Record<string, string> = {
+  headword: '词形',
+  pronunciation: '发音',
+  partOfSpeech: '词性',
+  definition: '释义',
+  dialectVariants: '方言变体',
+  examples: '例句',
+  sources: '来源',
+  synonyms: '同义词',
+  notes: '备注'
+};
+
+export const fieldLabel = (field: string) => FIELD_LABELS[field] ?? field;
+
+/** 取出词条某字段当前的结构化值 */
+export const getFieldValue = (entry: DictionaryEntry, field: string): unknown => {
+  if (field in entry) return (entry as Record<string, unknown>)[field];
+  return undefined;
+};
+
+/** 把字段值序列化成便于审校对照的文本 */
+export const serializeFieldValue = (field: string, value: unknown): string => {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    if (field === 'synonyms') return (value as string[]).join('、');
+    if (field === 'dialectVariants') {
+      return (value as DictionaryEntry['dialectVariants'])
+        .map((item) => [item.dialect, item.form, item.pronunciation].filter(Boolean).join(' / '))
+        .filter(Boolean)
+        .join('；');
+    }
+    if (field === 'examples') {
+      return (value as DictionaryEntry['examples'])
+        .map((item) => [item.text, item.translation].filter(Boolean).join(' — '))
+        .filter(Boolean)
+        .join('；');
+    }
+    if (field === 'sources') {
+      return (value as DictionaryEntry['sources'])
+        .map((item) => [item.title, item.citation].filter(Boolean).join('：'))
+        .filter(Boolean)
+        .join('；');
+    }
+    return value.map((item) => (typeof item === 'string' ? item : JSON.stringify(item))).join('；');
+  }
+  return String(value);
+};
+
+export const sameFieldValue = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+
+/** 意见锚定的那一版字段内容，是否已经和当前字段不一致（即需要复核） */
+export const isCommentStale = (entry: DictionaryEntry, comment: ReviewComment) => {
+  if (!comment.anchor) return false;
+  return !sameFieldValue(comment.anchor.value, getFieldValue(entry, comment.field));
+};
+
+/** 界面上的有效状态：resolved 但字段已变 → stale；其余沿用存储状态 */
+export type EffectiveCommentStatus = ReviewCommentStatus | 'stale';
+
+export const effectiveCommentStatus = (entry: DictionaryEntry, comment: ReviewComment): EffectiveCommentStatus => {
+  if (isCommentStale(entry, comment)) return 'stale';
+  return comment.status;
+};
+
+/** 仍需处理的意见：未解决的，或字段已变、等待主审复核的 */
+export const isCommentPending = (entry: DictionaryEntry, comment: ReviewComment) => {
+  if (comment.status === 'open') return true;
+  return isCommentStale(entry, comment);
+};
+
+export const countPendingComments = (entry: DictionaryEntry) =>
+  entry.reviewerComments.filter((comment) => isCommentPending(entry, comment)).length;
 
 export const normalizeWord = (value: string) => value
   .normalize('NFKC')

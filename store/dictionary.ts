@@ -1,13 +1,45 @@
 import { computed, reactive, ref } from 'vue';
 import { defineStore } from 'pinia';
 import type {
-  AuditRecord, DictionaryEntry, DictionarySnapshot, DuplicatePair, EntryStatus, ReviewComment, VersionRecord
+  AuditRecord, CommentAnchor, DictionaryEntry, DictionarySnapshot, DuplicatePair, EntryStatus, ReviewComment, VersionRecord
 } from '~/types/dictionary';
-import { findDuplicates } from '~/utils/dictionary';
+import {
+  REVIEW_FIELDS, countPendingComments, fieldLabel, getFieldValue,
+  sameFieldValue, serializeFieldValue
+} from '~/utils/dictionary';
 
 const now = () => new Date().toISOString();
 const uid = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 9)}-${Date.now().toString(36)}`;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+/** 为某词条某字段在当前时刻生成锚点 */
+const buildAnchor = (entry: DictionaryEntry, field: string, revision: number, note?: string): CommentAnchor => {
+  const value = clone(getFieldValue(entry, field));
+  return { at: now(), revision, value, valueText: serializeFieldValue(field, value), note };
+};
+
+/** 兼容旧数据：没有锚点的历史意见按当前字段内容补锚，并保留旧的 open/resolved 状态 */
+const migrateEntry = (entry: DictionaryEntry) => {
+  // 旧版本的待审词条没有提交留底，按当前内容补一份基线，保持界面语义一致
+  if (entry.status === 'review' && !entry.submittedBaseline) {
+    const baseline: Record<string, unknown> = {};
+    REVIEW_FIELDS.forEach((field) => { baseline[field] = clone(getFieldValue(entry, field)); });
+    entry.submittedBaseline = baseline;
+    entry.submittedRevision ??= 1;
+    entry.submittedAt ??= entry.updatedAt || entry.createdAt;
+  }
+  entry.reviewerComments.forEach((comment) => {
+    if (!comment.anchor) {
+      const value = clone(getFieldValue(entry, comment.field));
+      comment.anchor = {
+        at: comment.createdAt,
+        value,
+        valueText: serializeFieldValue(comment.field, value),
+        note: '旧意见，按当前内容补锚'
+      };
+    }
+  });
+};
 
 const seedEntries = (): DictionaryEntry[] => [
   {
@@ -56,6 +88,7 @@ const seedAudit: AuditRecord[] = [{
 export const useDictionaryStore = defineStore('dictionary', () => {
   const revision = ref(1);
   const entries = reactive<DictionaryEntry[]>(seedEntries());
+  entries.forEach(migrateEntry);
   const versions = reactive<VersionRecord[]>([]);
   const audit = reactive<AuditRecord[]>(seedAudit);
   const selectedId = ref(entries[0]?.id ?? '');
@@ -75,7 +108,7 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     audit: clone(audit)
   }));
   const duplicates = computed<DuplicatePair[]>(() => findDuplicates(entries));
-  const openComments = computed(() => entries.reduce((sum, entry) => sum + entry.reviewerComments.filter((comment) => comment.status === 'open').length, 0));
+  const openComments = computed(() => entries.reduce((sum, entry) => sum + countPendingComments(entry), 0));
   const filteredEntries = computed(() => {
     const term = query.value.trim().toLowerCase();
     return entries.filter((entry) => {
@@ -102,6 +135,7 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     entries.splice(0, entries.length, ...(clone(value.entries ?? [])));
     versions.splice(0, versions.length, ...(clone(value.versions ?? [])));
     audit.splice(0, audit.length, ...(clone(value.audit ?? [])));
+    entries.forEach(migrateEntry);
     if (!entries.some((entry) => entry.id === selectedId.value)) selectedId.value = entries[0]?.id ?? '';
   }
 
@@ -132,9 +166,50 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     commit('编辑字段', `${label}发生更新`, [entryId], () => { entry[field] = value; });
   }
 
+  /** 编辑提交待审：为全部字段留底，并把针对改动字段的待处理意见重新锚到这一版 */
+  function submitForReview(entryId: string) {
+    const entry = entries.find((item) => item.id === entryId);
+    if (!entry || entry.status === 'review') return;
+    const nextRevision = revision.value + 1;
+    commit('提交待审', `提交“${entry.headword || '未命名词条'}”等待主审核对字段`, [entryId], () => {
+      entry.status = 'review';
+      entry.submittedRevision = nextRevision;
+      entry.submittedAt = now();
+      const baseline: Record<string, unknown> = {};
+      REVIEW_FIELDS.forEach((field) => { baseline[field] = clone(getFieldValue(entry, field)); });
+      entry.submittedBaseline = baseline;
+      // 编辑改完字段后重新提交：未解决且字段确已变化的意见，锚到这一版并保留旧锚点
+      entry.reviewerComments.forEach((comment) => {
+        if (comment.status !== 'open' || !comment.anchor) return;
+        const value = baseline[comment.field];
+        if (sameFieldValue(comment.anchor.value, value)) return;
+        comment.anchorHistory = [...(comment.anchorHistory ?? []), clone(comment.anchor)];
+        comment.anchor = {
+          at: now(), revision: nextRevision, value: clone(value),
+          valueText: serializeFieldValue(comment.field, value), note: '编辑重新提交，锚到本版内容'
+        };
+      });
+    });
+  }
+
+  /** 确认词条：所有意见都处理完（无待回复、无待复核）才允许 */
+  function confirmEntry(entryId: string) {
+    const entry = entries.find((item) => item.id === entryId);
+    if (!entry) return false;
+    const blocking = countPendingComments(entry);
+    if (blocking > 0) return false;
+    commit('确认词条', `“${entry.headword || '未命名词条'}”的全部意见已处理，状态改为已确认`, [entryId], () => {
+      entry.status = 'confirmed';
+    });
+    return true;
+  }
+
+  /** 主审之外的手动状态调整（如退回草稿、标记争议），不动意见锚点 */
   function setStatus(entryId: string, status: EntryStatus) {
     const entry = entries.find((item) => item.id === entryId);
     if (!entry || entry.status === status) return;
+    if (status === 'review') { submitForReview(entryId); return; }
+    if (status === 'confirmed') { confirmEntry(entryId); return; }
     const labels: Record<EntryStatus, string> = { draft: '草稿', review: '待审', disputed: '争议', confirmed: '已确认' };
     commit('变更状态', `词条状态改为“${labels[status]}”`, [entryId], () => { entry.status = status; });
   }
@@ -215,23 +290,65 @@ export const useDictionaryStore = defineStore('dictionary', () => {
   function addComment(entryId: string, field: string, message: string, author = '主审·和老师') {
     const entry = entries.find((item) => item.id === entryId);
     if (!entry || !message.trim()) return;
-    const comment: ReviewComment = { id: uid('comment'), field, author, message: message.trim(), status: 'open', createdAt: now(), replies: [] };
-    commit('新增审校意见', `对“${field}”添加审校意见`, [entryId], () => entry.reviewerComments.unshift(comment));
+    const nextRevision = revision.value + 1;
+    let anchor: CommentAnchor;
+    let detailNote: string;
+    const baselineValue = entry.submittedBaseline?.[field];
+    if (entry.status === 'review' && entry.submittedBaseline && baselineValue !== undefined) {
+      // 待审词条：意见绑定编辑提交的那一版内容，而非当前内容
+      const value = clone(baselineValue);
+      anchor = {
+        at: now(), revision: entry.submittedRevision ?? nextRevision, value,
+        valueText: serializeFieldValue(field, value), note: `绑定第 ${entry.submittedRevision ?? nextRevision} 版提交内容`
+      };
+      detailNote = '（绑定提交版）';
+    } else {
+      anchor = buildAnchor(entry, field, nextRevision, '非待审阶段，按当前内容锚定');
+      detailNote = '（按当前内容锚定）';
+    }
+    const comment: ReviewComment = {
+      id: uid('comment'), field, author, message: message.trim(),
+      status: 'open', createdAt: now(), replies: [], anchor
+    };
+    commit('新增审校意见', `对“${fieldLabel(field)}”添加审校意见${detailNote}`, [entryId], () => entry.reviewerComments.unshift(comment));
   }
 
   function replyComment(entryId: string, commentId: string, message: string, author = '编辑·阿木') {
     const entry = entries.find((item) => item.id === entryId);
     const comment = entry?.reviewerComments.find((item) => item.id === commentId);
     if (!entry || !comment || !message.trim()) return;
-    commit('回复审校意见', `回复“${comment.field}”字段意见`, [entryId], () => comment.replies.push({ id: uid('reply'), author, message: message.trim(), createdAt: now() }));
+    commit('回复审校意见', `回复“${fieldLabel(comment.field)}”字段意见`, [entryId], () =>
+      comment.replies.push({ id: uid('reply'), author, message: message.trim(), createdAt: now(), kind: 'reply' }));
   }
 
-  function toggleComment(entryId: string, commentId: string) {
+  /**
+   * 主审对一条意见下结论：
+   * - resolved（处理完了）：以当前字段内容重新锚定并解决；
+   * - open（还得调整）：以当前字段内容重新锚定，但意见继续挂着等待编辑再改。
+   * 无论哪种结论，旧锚点都进入 anchorHistory，历史回复原样保留。
+   */
+  function decideComment(entryId: string, commentId: string, decision: 'resolved' | 'open', author = '主审·和老师') {
     const entry = entries.find((item) => item.id === entryId);
     const comment = entry?.reviewerComments.find((item) => item.id === commentId);
-    if (!entry || !comment) return;
-    commit('处理审校意见', comment.status === 'open' ? '标记为已解决' : '重新打开意见', [entryId], () => {
-      comment.status = comment.status === 'open' ? 'resolved' : 'open';
+    if (!entry || !comment || !comment.anchor) return;
+    const nextRevision = revision.value + 1;
+    const newAnchor = buildAnchor(entry, comment.field, nextRevision, decision === 'resolved' ? '主审复核通过，锚到当前版' : '主审判定仍需调整，锚到当前版');
+    const decisionText = decision === 'resolved' ? '处理完了' : '还得调整';
+    commit('主审判定意见', `对“${fieldLabel(comment.field)}”的意见判定：${decisionText}`, [entryId], () => {
+      comment.anchorHistory = [...(comment.anchorHistory ?? []), clone(comment.anchor!)];
+      comment.anchor = newAnchor;
+      comment.status = decision;
+      comment.replies.push({ id: uid('reply'), author, message: `【主审判定】${decisionText}，已按当前字段内容重新锚定。`, createdAt: now(), kind: 'decision' });
+    });
+  }
+
+  /** 重新打开一条已解决意见：状态翻回待处理，锚点保持不变（仍指向被审内容） */
+  function reopenComment(entryId: string, commentId: string) {
+    const entry = entries.find((item) => item.id === entryId);
+    const comment = entry?.reviewerComments.find((item) => item.id === commentId);
+    if (!entry || !comment || comment.status === 'open') return;
+    commit('重新打开意见', `重新打开“${fieldLabel(comment.field)}”字段意见`, [entryId], () => {
+      comment.status = 'open';
     });
   }
 
@@ -254,8 +371,16 @@ export const useDictionaryStore = defineStore('dictionary', () => {
         const layers: Array<keyof DictionaryEntry> = ['dialectVariants', 'examples', 'sources', 'synonyms', 'reviewerComments'];
         layers.forEach((field) => {
           const targetValue = target[field] as unknown[];
-          const sourceValue = source[field] as unknown[];
-          targetValue.push(...clone(sourceValue));
+          const sourceValue = clone(source[field]) as unknown[];
+          if (field === 'reviewerComments') {
+            // 意见锚点原样带入合并词条，并在锚点上标注原始归属，锚点不丢
+            (sourceValue as ReviewComment[]).forEach((comment) => {
+              if (comment.anchor) {
+                comment.anchor.origin = comment.anchor.origin || `来自被合并词条“${source.headword}”`;
+              }
+            });
+          }
+          targetValue.push(...sourceValue);
         });
       });
       (['headword', 'pronunciation', 'partOfSpeech', 'definition', 'notes'] as const).forEach((field) => {
@@ -263,6 +388,10 @@ export const useDictionaryStore = defineStore('dictionary', () => {
         if (choice === 'source') target[field] = sources[0]![field];
         if (choice === 'combine' && target[field] !== sources[0]![field]) target[field] = `${target[field]}；${sources[0]![field]}`;
       });
+      // 合并产生的是新内容，原提交基线作废，需要重新提交留底
+      target.submittedBaseline = undefined;
+      target.submittedAt = undefined;
+      target.submittedRevision = undefined;
       target.status = 'disputed';
       sourceIds.forEach((id) => {
         const index = entries.findIndex((entry) => entry.id === id);
@@ -315,7 +444,8 @@ export const useDictionaryStore = defineStore('dictionary', () => {
     selectedEntry, filteredEntries, dialects, duplicates, openComments, persistableSnapshot,
     canUndo: computed(() => undoStack.value.length > 0), canRedo: computed(() => redoStack.value.length > 0),
     createEntry, updateField, setStatus, addVariant, updateVariant, removeVariant, addExample, updateExample, removeExample,
-    addSource, updateSource, removeSource, setSynonyms, addComment, replyComment, toggleComment, deleteEntry, mergeEntries,
+    addSource, updateSource, removeSource, setSynonyms, addComment, replyComment, decideComment, reopenComment,
+    submitForReview, confirmEntry, deleteEntry, mergeEntries,
     undo, redo, restoreVersion, hydrateFromBrowser, exportPackage
   };
 });

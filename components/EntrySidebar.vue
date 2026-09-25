@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useDictionaryStore } from '~/store/dictionary';
+import { countPendingComments } from '~/utils/dictionary';
 
 const store = useDictionaryStore();
 const emit = defineEmits<{ create: []; duplicates: []; versions: [] }>();
@@ -53,7 +54,7 @@ const statusMeta = {
         <div class="entry-card-meta">
           <span>{{ entry.dialectVariants.length }} 方言变体</span>
           <span>{{ entry.examples.length }} 例句</span>
-          <span v-if="entry.reviewerComments.filter((item) => item.status === 'open').length" class="comment-count">{{ entry.reviewerComments.filter((item) => item.status === 'open').length }} 条意见</span>
+          <span v-if="countPendingComments(entry)" class="comment-count">{{ countPendingComments(entry) }} 条待处理</span>
         </div>
       </button>
       <t-empty v-if="!store.filteredEntries.length" description="没有符合条件的词条" />
