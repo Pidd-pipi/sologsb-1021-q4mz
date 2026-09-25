@@ -101,7 +101,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keyboard));
         <div><strong>{{ store.entries.length }}</strong><span>词条</span></div>
         <div><strong>{{ store.entries.filter((entry) => entry.status === 'review').length }}</strong><span>待审</span></div>
         <div><strong>{{ store.entries.filter((entry) => entry.status === 'disputed').length }}</strong><span>争议</span></div>
-        <div><strong>{{ store.openComments }}</strong><span>待回复意见</span></div>
+        <div><strong>{{ store.openComments }}</strong><span>待处理意见</span></div>
         <div><strong>{{ store.duplicates.length }}</strong><span>疑似重复</span></div>
       </div>
     </section>
@@ -113,7 +113,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', keyboard));
     </main>
 
     <section class="bottom-bar">
-      <div class="method-card"><span class="method-index">01</span><div><strong>字段级审校</strong><p>审校意见绑定到词形、发音、释义、例句或来源，编辑可逐条回复并解决。</p></div></div>
+      <div class="method-card"><span class="method-index">01</span><div><strong>字段意见锚定</strong><p>提交待审时记录字段版本，意见跟着这版内容走；字段再改自动转待复核并对照新旧内容，全部处理完才能确认。</p></div></div>
       <div class="method-card"><span class="method-index">02</span><div><strong>引用影响检查</strong><p>删除词条前扫描同义词、释义和例句引用，列出可能受影响的全部词条。</p></div></div>
       <div class="method-card"><span class="method-index">03</span><div><strong>离线版本保护</strong><p>所有编辑在浏览器本地保存；撤销重做与版本恢复均保留提交前完整快照。</p></div></div>
       <div class="keyboard-card"><kbd>J/K</kbd><span>切换词条</span><kbd>/</kbd><span>搜索</span><kbd>D</kbd><span>查重</span><kbd>V</kbd><span>版本</span></div>

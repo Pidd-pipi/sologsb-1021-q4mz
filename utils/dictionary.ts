@@ -1,4 +1,48 @@
-import type { DictionaryEntry, DuplicatePair } from '~/types/dictionary';
+import type { DictionaryEntry, DuplicatePair, ReviewComment } from '~/types/dictionary';
+
+/** 可被审校意见锚定的字段 */
+export const REVIEW_FIELDS = [
+  'headword', 'pronunciation', 'partOfSpeech', 'definition', 'dialectVariants', 'examples', 'sources', 'synonyms', 'notes'
+] as const;
+
+export type ReviewField = (typeof REVIEW_FIELDS)[number];
+
+export const FIELD_LABELS: Record<string, string> = {
+  headword: '词形', pronunciation: '发音', partOfSpeech: '词性', definition: '释义', dialectVariants: '方言变体', examples: '例句', sources: '来源', synonyms: '同义词', notes: '备注'
+};
+
+/** 把任一字段序列化为可稳定比对、可展示的文本版本 */
+export const serializeField = (entry: DictionaryEntry, field: string): string => {
+  switch (field) {
+    case 'dialectVariants':
+      return entry.dialectVariants
+        .map((variant) => [variant.dialect, variant.form, variant.pronunciation, variant.note].map((part) => part.trim()).filter(Boolean).join('｜'))
+        .filter(Boolean)
+        .join('\n');
+    case 'examples':
+      return entry.examples
+        .map((example) => [example.text, example.translation, example.source].map((part) => part.trim()).filter(Boolean).join(' — '))
+        .filter(Boolean)
+        .join('\n');
+    case 'sources':
+      return entry.sources
+        .map((source) => [source.title, source.citation, source.url].map((part) => part.trim()).filter(Boolean).join('｜'))
+        .filter(Boolean)
+        .join('\n');
+    case 'synonyms':
+      return entry.synonyms.join('、');
+    default:
+      return String((entry as Record<string, unknown>)[field] ?? '');
+  }
+};
+
+/** 主审尚未处理完的意见：未决（open）或字段已变化需复核（resolved 但 needsRecheck） */
+export const isBlockingComment = (comment: ReviewComment) => comment.status === 'open' || !!comment.needsRecheck;
+
+export const blockingCommentCount = (entry: DictionaryEntry) => entry.reviewerComments.filter(isBlockingComment).length;
+
+export const entryCanConfirm = (entry: DictionaryEntry) => blockingCommentCount(entry) === 0;
+
 
 export const normalizeWord = (value: string) => value
   .normalize('NFKC')

@@ -172,6 +172,25 @@ kbd { padding: 3px 6px; border: 1px solid #cbd6d1; border-bottom-width: 2px; bor
 .audit-line div { display: flex; flex-direction: column; gap: 2px; }
 .audit-line strong { font-size: 9px; }
 .audit-line span { color: var(--muted); font-size: 8px; }
+.confirm-hint { margin: 0 16px 9px; padding: 8px 11px; color: #8a5a2b; border: 1px solid #ecd5b6; border-radius: 8px; background: #fdf6ea; font-size: 9px; line-height: 1.5; }
+.field-flag { margin-left: 7px; padding: 1px 6px; color: #fff; border-radius: 8px; background: #cf8a45; font-style: normal; font-size: 8px; font-weight: 700; vertical-align: middle; }
+.submit-review { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 11px; border-bottom: 1px solid #e5ebe7; color: var(--muted); font-size: 8px; }
+.submit-review.on { color: #8a6a35; background: #fbf5ea; }
+.comment-card.recheck { border-left-color: var(--danger); background: #fdf6f4; }
+.origin-line { margin: 4px 0; color: #8a6a35; font-size: 8px; }
+.anchor-diff { margin-top: 6px; border: 1px solid #ecd5b6; border-radius: 7px; overflow: hidden; }
+.anchor-version { padding: 7px 9px; }
+.anchor-version.old { background: #f7f2ea; }
+.anchor-version.current { background: #eef5f0; }
+.anchor-version strong { display: block; margin-bottom: 4px; font-size: 8px; color: var(--muted); }
+.anchor-version pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 9px; line-height: 1.55; color: #3d4f48; }
+.anchor-arrow { padding: 4px 9px; color: var(--danger); background: #f6e4de; font-size: 8px; font-weight: 700; }
+.anchor-history { margin-top: 6px; font-size: 8px; }
+.anchor-history summary { color: var(--forest); cursor: pointer; }
+.anchor-history .anchor-version { margin-top: 5px; border: 1px solid #e7ded0; border-radius: 6px; }
+.verdict-line { margin-top: 7px; padding: 5px 8px; border-radius: 6px; background: #edf3ef; color: #4a675d; font-size: 8px; }
+.verdict-actions { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.reopen-button { margin-left: auto; border: 0; color: var(--muted); background: transparent; font-size: 8px; text-decoration: underline; cursor: pointer; }
 @media (max-width: 1320px) {
   .workspace { grid-template-columns: minmax(270px, .72fr) minmax(430px, 1.4fr) minmax(300px, .84fr); gap: 10px; padding: 0 12px; }
   .project-bar, .bottom-bar { padding-left: 12px; padding-right: 12px; }

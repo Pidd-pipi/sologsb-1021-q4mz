@@ -66,7 +66,7 @@ const confirmMerge = () => {
         <div><strong>方言变体</strong><span>{{ left.dialectVariants.length }} + {{ right.dialectVariants.length }}</span><small>合并时全部保留</small></div>
         <div><strong>例句</strong><span>{{ left.examples.length }} + {{ right.examples.length }}</span><small>合并时全部保留</small></div>
         <div><strong>来源</strong><span>{{ left.sources.length }} + {{ right.sources.length }}</span><small>合并时全部保留</small></div>
-        <div><strong>审校意见</strong><span>{{ left.reviewerComments.length }} + {{ right.reviewerComments.length }}</span><small>合并时全部保留</small></div>
+        <div><strong>审校意见</strong><span>{{ left.reviewerComments.length }} + {{ right.reviewerComments.length }}</span><small>意见与绑定锚点一并保留</small></div>
       </div>
 
       <div class="merge-warning"><strong>合并结果会标记为“争议”</strong><span>被合并词条不再单独显示，但完整快照和字段来源会进入版本记录，可撤销或恢复。</span></div>
